@@ -1,0 +1,64 @@
+{
+  "name": "usage-warn",
+  "version": "0.2.0",
+  "description": "Warns as the 5-hour and 7-day usage windows fill, with a pace forecast and a status line",
+  "author": { "name": "Magnus Pladsen" },
+  "userConfig": {
+    "start": {
+      "type": "string",
+      "title": "Start warning at",
+      "description": "The usage percent where warnings and the status line begin",
+      "default": "50",
+      "options": ["30", "40", "50", "60", "70", "80"]
+    },
+    "step": {
+      "type": "string",
+      "title": "Warn every",
+      "description": "Percent between warnings after the start",
+      "default": "10",
+      "options": ["5", "10", "20"]
+    },
+    "notifyAt": {
+      "type": "string",
+      "title": "Native notification from",
+      "description": "From this percent a warning also raises a macOS notification; off for toasts only",
+      "default": "90",
+      "options": ["off", "70", "80", "90", "95"]
+    },
+    "toastSeconds": {
+      "type": "string",
+      "title": "Toast seconds",
+      "description": "How long a warning toast stays on screen",
+      "default": "8",
+      "options": ["4", "8", "15", "30"]
+    },
+    "statusLine": {
+      "type": "string",
+      "title": "Status line",
+      "description": "on: past the start, keep usage, time to reset and the 100% forecast under the prompt",
+      "default": "on",
+      "options": ["on", "off"]
+    },
+    "forecast": {
+      "type": "string",
+      "title": "Pace forecast",
+      "description": "on: say when the window hits 100% at the current pace, when that is before the reset",
+      "default": "on",
+      "options": ["on", "off"]
+    },
+    "sevenDay": {
+      "type": "string",
+      "title": "7-day window",
+      "description": "on: warn for the 7-day window too, with the same thresholds",
+      "default": "on",
+      "options": ["on", "off"]
+    },
+    "sound": {
+      "type": "string",
+      "title": "Sound",
+      "description": "Play a chime with the native notification, on every warning, or never",
+      "default": "with notification",
+      "options": ["with notification", "every step", "off"]
+    }
+  }
+}
