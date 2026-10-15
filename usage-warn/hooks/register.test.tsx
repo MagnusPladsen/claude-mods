@@ -1,6 +1,6 @@
 import { test, expect, mock } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import { addSample, duration, readSettings, stepFor } from './logic'
+import { addSample, circleColor, duration, readSettings, stepFor, windowLabel } from './logic'
 
 const HOUR = 60 * 60 * 1000
 const RESET_A = Date.parse('2026-10-14T15:00:00.000Z')
@@ -23,6 +23,11 @@ const world = (on: On, now = RESET_A - 3 * HOUR) => {
   const statuses: (string | undefined)[] = []
   let sounds = 0
   on('session.measure', (_$, e) => ({ changed: e.changed }))
+  // The engine's own band when the mod passes: empty.
+  on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
+    const { Box } = $.ui.resolve(e)
+    return <Box />
+  })
   on('ui.toast', (_$, e) => {
     toasts.push(e.text)
     return { value: undefined }
@@ -140,6 +145,72 @@ test('status line off keeps the line untouched', { options: { statusLine: 'off' 
   const w = world(on)
   await $.session.measure(fiveHour(63))
   expect(w.statuses.length).toBe(0)
+})
+
+const BAND = {
+  component: 'AbovePrompt' as const,
+  props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 80, scroll: { offset: 0, bodyRows: 10 }, view: {} },
+}
+
+test('band: no circle at 0%, one per window in use, colored by threshold', async ($, on) => {
+  world(on)
+  const reset7d = RESET_A + 3 * 24 * HOUR
+
+  await $.session.measure(reading([
+    { kind: 'five_hour', percentUsed: 0, resetsAt: RESET_A },
+    { kind: 'seven_day', percentUsed: 0, resetsAt: reset7d },
+  ]))
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ plugin: 'usage-warn', surface, ...BAND })
+    expect(await ui.findAll({ type: 'Button' })).toHaveLength(0)
+    await ui.unmount()
+  }
+
+  await $.session.measure(reading([
+    { kind: 'five_hour', percentUsed: 12, resetsAt: RESET_A },
+    { kind: 'seven_day', percentUsed: 64, resetsAt: reset7d },
+    { kind: 'seven_day_opus', percentUsed: 91, resetsAt: reset7d },
+  ]))
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ plugin: 'usage-warn', surface, ...BAND })
+    const circles = await ui.findAll({ type: 'Button' })
+    expect(circles.map(c => c.key)).toEqual(['usage-five_hour', 'usage-seven_day', 'usage-seven_day_opus'])
+    const colors = await ui.findAll({ type: 'Text', text: '●' })
+    expect(colors.map(c => c.props.color)).toEqual(['success', 'warning', 'error'])
+    await ui.unmount()
+  }
+})
+
+test('band: details hidden until hovered, pinned by a click, unpinned by another', async ($, on) => {
+  world(on)
+  await $.session.measure(fiveHour(63))
+  const ui = await $.ui.mount({ plugin: 'usage-warn', surface: 'terminal', ...BAND })
+
+  // The details Box is the inner one; the outer row shows the same text.
+  const details = async () => (await ui.findAll({ type: 'Box', text: /resets in/ }))[1]
+  expect((await details())?.props.display).toBe('none')
+  expect((await details())?.text).toContain('5h 63% · resets in 3h00m')
+
+  await ui.press({ key: 'usage-five_hour' })
+  expect((await details())?.props.display).toBeUndefined()
+
+  await ui.press({ key: 'usage-five_hour' })
+  expect((await details())?.props.display).toBe('none')
+})
+
+test('band: circles off draws nothing', { options: { indicator: 'off' } }, async ($, on) => {
+  world(on)
+  await $.session.measure(fiveHour(63))
+  const ui = await $.ui.mount({ plugin: 'usage-warn', surface: 'terminal', ...BAND })
+  expect(await ui.findAll({ type: 'Button' })).toHaveLength(0)
+})
+
+test('logic: labels and circle colors', async () => {
+  const s = readSettings({})
+  expect(['five_hour', 'seven_day', 'seven_day_opus', 'spend_limit'].map(windowLabel)).toEqual(['5h', '7d', '7d opus', 'spend_limit'])
+  expect([0.1, 49.9, 50, 89.9, 90].map(p => circleColor(p, s))).toEqual(['success', 'success', 'warning', 'warning', 'error'])
+  expect(circleColor(75, readSettings({ start: '70', notifyAt: 'off' }))).toBe('warning')
+  expect(circleColor(95, readSettings({ notifyAt: 'off' }))).toBe('error')
 })
 
 test('logic: steps, durations and sample trimming', async () => {

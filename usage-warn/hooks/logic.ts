@@ -1,10 +1,23 @@
 import type { PluginOptions, SessionRateLimit } from 'claude-code'
 
-export type WindowKind = 'five_hour' | 'seven_day'
+const HOUR_MS = 60 * 60 * 1000
 
-export const WINDOWS: Record<WindowKind, { label: string; lengthMs: number }> = {
-  five_hour: { label: '5h', lengthMs: 5 * 60 * 60 * 1000 },
-  seven_day: { label: '7d', lengthMs: 7 * 24 * 60 * 60 * 1000 },
+/** The windows the mod tracks: the 5-hour one, and every weekly one (7d, 7d opus, ...). */
+export const isTracked = (kind: string, sevenDay: boolean) =>
+  kind === 'five_hour' || (sevenDay && kind.startsWith('seven_day'))
+
+/** 5h, 7d, or 7d opus for a model-scoped weekly window. */
+export const windowLabel = (kind: string) => {
+  if (kind === 'five_hour') return '5h'
+  if (kind === 'seven_day') return '7d'
+  if (kind.startsWith('seven_day_')) return `7d ${kind.slice('seven_day_'.length).replace(/_/g, ' ')}`
+  return kind
+}
+
+const windowLength = (kind: string) => {
+  if (kind === 'five_hour') return 5 * HOUR_MS
+  if (kind.startsWith('seven_day')) return 7 * 24 * HOUR_MS
+  return undefined
 }
 
 export type Settings = {
@@ -16,6 +29,7 @@ export type Settings = {
   forecast: boolean
   sevenDay: boolean
   sound: 'off' | 'notify' | 'every'
+  indicator: boolean
 }
 
 const num = (value: unknown, fallback: number) => {
@@ -32,7 +46,15 @@ export const readSettings = (o: PluginOptions): Settings => ({
   forecast: o.forecast !== 'off',
   sevenDay: o.sevenDay !== 'off',
   sound: o.sound === 'off' ? 'off' : o.sound === 'every step' ? 'every' : 'notify',
+  indicator: o.indicator !== 'off',
 })
+
+/** The circle's theme color: green below the start, warning from it, error from the notification percent. */
+export const circleColor = (percent: number, s: Settings): 'success' | 'warning' | 'error' => {
+  if (percent >= (s.notifyAt ?? 90)) return 'error'
+  if (percent >= s.start) return 'warning'
+  return 'success'
+}
 
 /** The highest warning step reached, or 0 below the start. */
 export const stepFor = (percent: number, s: Settings) => {
@@ -42,7 +64,7 @@ export const stepFor = (percent: number, s: Settings) => {
 
 export type Sample = [time: number, percent: number]
 
-const SAMPLE_SPAN_MS = 60 * 60 * 1000
+const SAMPLE_SPAN_MS = HOUR_MS
 const MIN_SPAN_MS = 10 * 60 * 1000
 
 /** Keeps the last hour of samples, at most one a minute. */
@@ -70,7 +92,7 @@ export const forecastFull = (
   if (first && now - first[0] >= MIN_SPAN_MS && limit.percentUsed > first[1]) {
     ratePerMs = (limit.percentUsed - first[1]) / (now - first[0])
   } else {
-    const length = WINDOWS[limit.kind as WindowKind]?.lengthMs
+    const length = windowLength(limit.kind)
     const elapsed = length ? now - (resetsAt - length) : 0
     if (elapsed >= MIN_SPAN_MS) ratePerMs = limit.percentUsed / elapsed
   }
@@ -105,7 +127,7 @@ export const warningText = (
   fullAt: number | undefined,
   now: number,
 ) => {
-  const label = WINDOWS[limit.kind as WindowKind]?.label ?? limit.kind
+  const label = windowLabel(limit.kind)
   const resetsAt = limit.resetsAt ? Date.parse(limit.resetsAt) : NaN
   const parts = [`${label} usage at ${step}%`]
   if (!Number.isNaN(resetsAt)) parts.push(`resets ${clockTime(resetsAt, now)}`)
@@ -114,7 +136,7 @@ export const warningText = (
 }
 
 export const statusPart = (limit: SessionRateLimit, fullAt: number | undefined, now: number) => {
-  const label = WINDOWS[limit.kind as WindowKind]?.label ?? limit.kind
+  const label = windowLabel(limit.kind)
   const resetsAt = limit.resetsAt ? Date.parse(limit.resetsAt) : NaN
   let text = `${label} ${Math.round(limit.percentUsed)}%`
   if (!Number.isNaN(resetsAt)) text += ` · resets in ${duration(resetsAt - now)}`
